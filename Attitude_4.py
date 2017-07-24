@@ -268,11 +268,28 @@ class Model:
         with tf.variable_scope('training'):
             sqr_dif = tf.square(self.model - self.labels)
             mse = tf.reduce_mean(tf.reduce_sum(sqr_dif, 1), name='mean_squared_error')
+
             sqr_angle_dif, sqr_pos_dif = tf.split(sqr_dif, axis=1, num_or_size_splits=2)
-            angle_error = tf.reduce_mean(tf.sqrt(tf.reduce_sum(sqr_angle_dif, 1)), name='mean_angle_error')
-            position_error = tf.reduce_mean(tf.sqrt(tf.reduce_sum(sqr_pos_dif, 1)), name='mean_position_error')
+            angle_error = tf.reduce_mean(tf.sqrt(tf.reduce_sum(sqr_angle_dif, 1)), name='angle_error')
+            position_error = tf.reduce_mean(tf.sqrt(tf.reduce_sum(sqr_pos_dif, 1)), name='position_error')
+
+            individual_metrics = tf.split(sqr_dif, axis=1, num_or_size_splits=6)
+            yaw_error = tf.reduce_mean(tf.sqrt(individual_metrics[0]), name='yaw_error')
+            pitch_error = tf.reduce_mean(tf.sqrt(individual_metrics[1]), name='pitch_error')
+            roll_error = tf.reduce_mean(tf.sqrt(individual_metrics[2]), name='roll_error')
+            x_error = tf.reduce_mean(tf.sqrt(individual_metrics[3]), name='x_error')
+            y_error = tf.reduce_mean(tf.sqrt(individual_metrics[4]), name='y_error')
+            z_error = tf.reduce_mean(tf.sqrt(individual_metrics[5]), name='z_error')
+
             tf.summary.scalar('angle_error', angle_error)
             tf.summary.scalar('position_error', position_error)
+            tf.summary.scalar('yaw_error', yaw_error)
+            tf.summary.scalar('pitch_error', pitch_error)
+            tf.summary.scalar('roll_error', roll_error)
+            tf.summary.scalar('x_error', x_error)
+            tf.summary.scalar('y_error', y_error)
+            tf.summary.scalar('z_error', z_error)
+            
             optimizer = tf.train.AdamOptimizer().minimize(mse)
 
         summaries = tf.summary.merge_all()
