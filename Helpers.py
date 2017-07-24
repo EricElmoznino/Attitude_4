@@ -1,8 +1,10 @@
+from __future__ import print_function
 import tensorflow as tf
 import time
 import os
 import webbrowser
 from subprocess import Popen, PIPE
+import re
 
 
 class Configuration:
@@ -18,15 +20,18 @@ def data_at_path(path):
     files = sorted(files, key=lambda file: int(file.split('_')[0]))
     files_ref = list(filter(lambda file: file.split('_')[1] == 'ref', files))
     files_new = list(filter(lambda file: file.split('_')[1] == 'new', files))
-    attitude_strings = [file.split('_')[2] for file in files_new]
-    attitudes = [[float(s.split('x')[0]), float(s.split('x')[1]), float(s.split('x')[2])]
-                 for s in attitude_strings]
+    attitude_strings = [','.join([file.split('_')[2], file.split('_')[3]]) for file in files_new]
+    attitudes = []
+    for attitude in attitude_strings:
+        attitude = re.split('x|y|,', attitude)
+        attitude = [float(a) for a in attitude]
+        attitudes.append(attitude)
     files_ref = [os.path.join(path, f) for f in files_ref]
     files_new = [os.path.join(path, f) for f in files_new]
     return files_ref, files_new, attitudes
 
 
-def log_step(step, total_steps, start_time, angle_error):
+def log_step(step, total_steps, start_time, angle_error, dist_error):
     progress = int(step / float(total_steps) * 100)
     seconds = time.time() - start_time
     m, s = divmod(seconds, 60)
@@ -34,16 +39,16 @@ def log_step(step, total_steps, start_time, angle_error):
     print(str(progress) + '%\t|\t',
           int(h), 'hours,', int(m), 'minutes,', int(s), 'seconds\t|\t',
           'Step:', step, '/', total_steps, '\t|\t',
-          'Average Angle Error (Degrees):', angle_error)
+          'Average Angle Error (Degrees):', angle_error, '\t|\tAverage Distance Error:', dist_error)
 
 
-def log_epoch(epoch, total_epochs, angle_error):
+def log_epoch(epoch, total_epochs, angle_error, dist_error):
     print('\nEpoch', epoch, 'completed out of', total_epochs,
-          '\t|\tAverage Angle Error (Degrees):', angle_error)
+          '\t|\tAverage Angle Error (Degrees):', angle_error, 'Average Distance Error:', dist_error)
 
 
-def log_generic(angle_error, set_name):
-    print('Average Angle Error (Degrees) on', set_name, 'set:', angle_error, '\n')
+def log_generic(angle_error, dist_error, set_name):
+    print('Average on', set_name, 'set\t', 'Angle:', angle_error, 'Distance:', dist_error, '\n')
 
 
 def weight_variables(shape):

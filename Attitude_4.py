@@ -15,7 +15,7 @@ class Model:
         self.conf = configuration
 
         self.image_shape = [image_width, image_height, 3]
-        self.label_shape = [3]
+        self.label_shape = [6]
 
         with tf.variable_scope('hyperparameters'):
             self.keep_prob_placeholder = tf.placeholder(tf.float32, name='dropout_keep_probability')
@@ -59,12 +59,11 @@ class Model:
         channel_sizes = [20, 20, 40, 40, 40, 80, 80, 80, 160, 160, 320]
         pools = [True, False, False, True, False, False, True, False, False, False, False]
 
-        fully_connected_sizes = [2048, 1024]
+        fully_connected_sizes = [2048, 2048]
 
         roll_sizes = [1024, 512]
-        yaw_pitch_sizes = [1024]
-        yaw_sizes = [512]
-        pitch_sizes = [512]
+        yaw_pitch_sizes = [1024, 512]
+        position_sizes = [1024, 512]
 
         with tf.variable_scope('model'):
 
@@ -96,25 +95,19 @@ class Model:
                 for i, layer_size in enumerate(yaw_pitch_sizes):
                     with tf.variable_scope('layer_' + str(i)):
                         yaw_pitch = hp.fully_connected(yaw_pitch, layer_size)
-
-            with tf.variable_scope('yaw'):
-                yaw = yaw_pitch
-                for i, layer_size in enumerate(yaw_sizes):
-                    with tf.variable_scope('layer_' + str(i)):
-                        yaw = hp.fully_connected(yaw, layer_size)
                 with tf.variable_scope('output'):
-                    yaw = hp.fully_connected(yaw, 1, bias=False, relu=False)
+                    yaw_pitch = hp.fully_connected(yaw_pitch, 2, bias=False, relu=False)
 
-            with tf.variable_scope('pitch'):
-                pitch = yaw_pitch
-                for i, layer_size in enumerate(pitch_sizes):
+            with tf.variable_scope('position'):
+                position = layer
+                for i, layer_size in enumerate(position_sizes):
                     with tf.variable_scope('layer_' + str(i)):
-                        pitch = hp.fully_connected(pitch, layer_size)
+                        position = hp.fully_connected(position, layer_size)
                 with tf.variable_scope('output'):
-                    pitch = hp.fully_connected(pitch, 1, bias=False, relu=False)
+                    position = hp.fully_connected(position, 3, bias=False, relu=False)
 
             with tf.variable_scope('output_layer'):
-                attitude = tf.concat([yaw, pitch, roll], 1)
+                attitude = tf.concat([yaw_pitch, roll, position], 1)
                 attitude = tf.nn.dropout(attitude, keep_prob=self.keep_prob_placeholder)
 
         return attitude
@@ -273,10 +266,13 @@ class Model:
 
     def train(self, train_path, validation_path=None, test_path=None):
         with tf.variable_scope('training'):
-            sqr_dif = tf.reduce_sum(tf.square(self.model - self.labels), 1)
-            mse = tf.reduce_mean(sqr_dif, name='mean_squared_error')
-            angle_error = tf.reduce_mean(tf.sqrt(sqr_dif), name='mean_angle_error')
+            sqr_dif = tf.square(self.model - self.labels)
+            mse = tf.reduce_mean(tf.reduce_sum(sqr_dif, 1), name='mean_squared_error')
+            sqr_angle_dif, sqr_pos_dif = tf.split(sqr_dif, axis=1, num_or_size_splits=2)
+            angle_error = tf.reduce_mean(tf.sqrt(tf.reduce_sum(sqr_angle_dif, 1)), name='mean_angle_error')
+            position_error = tf.reduce_mean(tf.sqrt(tf.reduce_sum(sqr_pos_dif, 1)), name='mean_position_error')
             tf.summary.scalar('angle_error', angle_error)
+            tf.summary.scalar('position_error', position_error)
             optimizer = tf.train.AdamOptimizer().minimize(mse)
 
         summaries = tf.summary.merge_all()
@@ -293,31 +289,32 @@ class Model:
             step = 0
             for epoch in range(1, self.conf.epochs + 1):
                 epoch_angle_error = 0
+                epoch_position_error = 0
                 n_samples = self.initialize_iterator_with_set(sess, train_path, 'train')
                 n_batches = int(n_samples / self.conf.batch_size)
                 n_steps = n_batches * self.conf.epochs
 
                 for batch in range(n_batches):
                     if step % max(int(n_steps / 1000), 1) == 0:
-                        _, a, s = sess.run([optimizer, angle_error, summaries],
+                        _, a, p, s = sess.run([optimizer, angle_error, position_error, summaries],
                                            feed_dict={self.keep_prob_placeholder: self.conf.keep_prob})
                         train_writer.add_summary(s, step)
-                        hp.log_step(step, n_steps, start_time, a)
+                        hp.log_step(step, n_steps, start_time, a, p)
                     else:
-                        _, a = sess.run([optimizer, angle_error],
+                        _, a, p = sess.run([optimizer, angle_error, position_error],
                                         feed_dict={self.keep_prob_placeholder: self.conf.keep_prob})
 
                     epoch_angle_error += a
+                    epoch_position_error += p
                     step += 1
 
-                hp.log_epoch(epoch, self.conf.epochs, epoch_angle_error / n_batches)
+                hp.log_epoch(epoch, self.conf.epochs, epoch_angle_error/n_batches, epoch_position_error/n_batches)
                 if validation_path is not None:
-                    self.error_for_set(sess, angle_error, validation_path, 'validation')
+                    self.error_for_set(sess, angle_error, position_error, validation_path, 'validation')
 
             self.saver.save(sess, os.path.join(self.conf.train_log_path, 'model.ckpt'))
             if test_path is not None:
-                self.error_for_set(sess, angle_error, test_path, 'test')
-                self.embeddings_for_set(sess, test_path)
+                self.error_for_set(sess, angle_error, position_error, test_path, 'test')
 
     def predict(self, prediction_path):
         with tf.Session() as sess:
@@ -332,45 +329,19 @@ class Model:
                 prediction = sess.run(self.model, feed_dict={self.keep_prob_placeholder: 1.0})
                 predictions = np.concatenate([predictions, prediction])
 
-        return predictions
+        orientations, positions = np.split(predictions, 2, axis=1)
 
-    def error_for_set(self, sess, error, path, name):
+        return orientations, positions
+
+    def error_for_set(self, sess, ang_err, pos_err, path, name):
         n_samples = self.initialize_iterator_with_set(sess, path, 'predict')
-        average_error = 0
+        avg_ang_err = avg_pos_err = 0
         for _ in range(n_samples):
-            average_error += sess.run(error, feed_dict={self.keep_prob_placeholder: 1.0}) / n_samples
-        hp.log_generic(average_error, name)
-        return average_error
-
-    def embeddings_for_set(self, sess, path):
-        n_samples = self.initialize_iterator_with_set(sess, path, 'predict')
-        predictions = np.ndarray([0, 3])
-        prediction_labels = np.ndarray([0, 3])
-        for _ in range(n_samples):
-            prediction, label = sess.run([self.model, self.labels], feed_dict={self.keep_prob_placeholder: 1.0})
-            predictions = np.concatenate([predictions, prediction])
-            prediction_labels = np.concatenate([prediction_labels, label])
-
-        with tf.variable_scope('embedding'):
-            embedding_var = tf.get_variable('embedding_var', shape=[predictions.shape[0], predictions.shape[1]],
-                                            initializer=tf.constant_initializer(predictions))
-        sess.run(embedding_var.initializer)
-
-        config = projector.ProjectorConfig()
-        embedding = config.embeddings.add()
-        embedding.tensor_name = embedding_var.name
-        metadata_file_path = os.path.join(self.conf.train_log_path, 'metadata.tsv')
-        embedding.metadata_path = metadata_file_path
-
-        # data labels
-        with open(metadata_file_path, 'w') as f:
-            for label in prediction_labels:
-                f.write(str(label) + '\n')
-
-        writer = tf.summary.FileWriter(self.conf.train_log_path)
-        projector.visualize_embeddings(writer, config)
-        embed_saver = tf.train.Saver([embedding_var])
-        embed_saver.save(sess, os.path.join(self.conf.train_log_path, 'embeddding.ckpt'))
+            a, p = sess.run([ang_err, pos_err], feed_dict={self.keep_prob_placeholder: 1.0})
+            avg_ang_err += a / n_samples
+            avg_pos_err += p / n_samples
+        hp.log_generic(avg_ang_err, avg_pos_err, name)
+        return avg_ang_err, avg_pos_err
 
     def initialize_iterator_with_set(self, sess, path, set_type):
         images_ref, images_new, labels = hp.data_at_path(path)
