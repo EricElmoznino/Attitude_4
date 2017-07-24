@@ -44,11 +44,11 @@ def log_step(step, total_steps, start_time, angle_error, dist_error):
 
 def log_epoch(epoch, total_epochs, angle_error, dist_error):
     print('\nEpoch', epoch, 'completed out of', total_epochs,
-          '\t|\tAverage Angle Error (Degrees):', angle_error, 'Average Distance Error:', dist_error)
+          ':\tAverage Angle Error (Degrees):', angle_error, '\t|\tAverage Distance Error:', dist_error)
 
 
 def log_generic(angle_error, dist_error, set_name):
-    print('Average on', set_name, 'set\t', 'Angle:', angle_error, 'Distance:', dist_error, '\n')
+    print('Average on', set_name, 'set:\t', 'Angle:', angle_error, '\t|\tDistance:', dist_error, '\n')
 
 
 def weight_variables(shape):
