@@ -289,7 +289,7 @@ class Model:
             tf.summary.scalar('x_error', x_error)
             tf.summary.scalar('y_error', y_error)
             tf.summary.scalar('z_error', z_error)
-            
+
             optimizer = tf.train.AdamOptimizer().minimize(mse)
 
         summaries = tf.summary.merge_all()

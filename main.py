@@ -1,7 +1,7 @@
 import Attitude_4
 import Helpers
 
-att_model = Attitude_4.Model(Helpers.Configuration(epochs=50), 80, 80)
+att_model = Attitude_4.Model(Helpers.Configuration(epochs=10), 80, 80)
 # att_model.train('/Users/Eric/ML_data/Attitude_4/train_data',
 #                 '/Users/Eric/ML_data/Attitude_4/validation_data',
 #                 '/Users/Eric/ML_data/Attitude_4/test_data')
