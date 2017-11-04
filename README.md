@@ -1,5 +1,5 @@
 # Attitude_4
-Phase 4 of developing an AI that can determine attitude (orientation and position) from a sequence of images.
+Phase 4 of developing an AI with TensorFlow that can determine attitude (orientation and position) from a sequence of images.
 
 File Descriptions:
 - Attitude_4.py:
